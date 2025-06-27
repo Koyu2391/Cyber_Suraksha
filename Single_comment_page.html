@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cyber Suraksha</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <style>
+    ::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900">
+  <header class="bg-white shadow-sm sticky top-0 z-50">
+    <nav class="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
+      <div class="flex items-center space-x-2">
+        <div class="bg-blue-600 rounded-full p-1">
+          <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 7v6c0 6 9 9 9 9s9-3 9-9V7l-9-5z"></path>
+          </svg>
+        </div>
+        <h1 class="font-semibold text-lg select-none">Cyber Suraksha</h1>
+      </div>
+    </nav>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+    <section class="bg-white p-6 rounded-xl shadow-md">
+      <h2 class="text-lg font-semibold text-slate-800 mb-4">Try a Comment</h2>
+      <div class="flex flex-col sm:flex-row items-start gap-4">
+        <input type="text" id="commentInput" placeholder="Enter comment here..." class="w-full sm:w-2/3 p-3 border border-slate-300 rounded-md shadow-sm" />
+        <button onclick="checkToxicity()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">Analyze</button>
+      </div>
+      <div id="result" class="mt-4 text-slate-700"></div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-white rounded-xl p-6 shadow-md">
+        <h2 class="text-slate-800 font-semibold mb-4 select-none">Category Distribution</h2>
+        <div id="pie-chart" class="w-full h-[300px]"></div>
+      </div>
+      <div class="bg-white rounded-xl p-6 shadow-md">
+        <h2 class="text-slate-800 font-semibold mb-4 select-none">Category Breakdown</h2>
+        <div id="bar-chart" class="w-full h-[300px]"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    async function checkToxicity() {
+      const input = document.getElementById('commentInput').value;
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = "<span class='text-blue-500'>Analyzing...</span>";
+
+      try {
+        const res = await fetch('https://koyu008-toxic-comment-classifier.hf.space/api/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: input })
+        });
+
+        const data = await res.json();
+        const { language, predictions } = data;
+
+        const hasToxic = Object.values(predictions).some(prob => prob >= 0.5);
+
+        if (!hasToxic) {
+          resultDiv.innerHTML = "<p><strong>Language:</strong> " + language + "</p><p class='mt-2 text-green-600 font-semibold'>The comment appears to be clean.</p>";
+          document.getElementById('pie-chart').innerHTML = '';
+          document.getElementById('bar-chart').innerHTML = '';
+          return;
+        }
+
+        let output = `<p><strong>Language:</strong> ${language}</p><ul class="mt-2 space-y-1">`;
+        const pieData = [];
+        const barData = [];
+
+        for (const [label, prob] of Object.entries(predictions)) {
+          const pct = (prob * 100).toFixed(2);
+          output += `<li><span class='font-semibold'>${label}</span>: ${pct}%</li>`;
+
+          const colorMap = {
+            'toxic': '#ef4444',
+            'severe toxic': '#b91c1c',
+            'obscene': '#f59e0b',
+            'threat': '#f97316',
+            'insult': '#06b6d4',
+            'identity hate': '#8b5cf6',
+            'not toxic': '#10b981',
+            'clean': '#10b981'
+          };
+
+          pieData.push({ name: label, y: parseFloat(pct), color: colorMap[label] || '#3b82f6' });
+          barData.push({ y: parseFloat(pct), color: colorMap[label] || '#3b82f6' });
+        }
+
+        output += `</ul>`;
+        resultDiv.innerHTML = output;
+
+        Highcharts.chart('pie-chart', {
+          chart: { type: 'pie', backgroundColor: 'transparent' },
+          title: { text: null },
+          tooltip: { pointFormat: '{series.name}: <b>{point.percentage:.1f} %</b>' },
+          accessibility: { point: { valueSuffix: '%' } },
+          plotOptions: {
+            pie: {
+              allowPointSelect: true,
+              cursor: 'pointer',
+              dataLabels: {
+                enabled: true,
+                format: '<b>{point.name}</b>: {point.percentage:.1f} %'
+              }
+            }
+          },
+          series: [{ name: 'Comments', colorByPoint: true, data: pieData }]
+        });
+
+        Highcharts.chart('bar-chart', {
+          chart: { type: 'column', backgroundColor: 'transparent' },
+          title: { text: null },
+          xAxis: {
+            categories: Object.keys(predictions),
+            labels: { style: { fontWeight: '600', color: '#334155' } },
+            lineColor: '#cbd5e1',
+            tickColor: '#cbd5e1'
+          },
+          yAxis: {
+            min: 0,
+            title: { text: 'Percentage (%)', style: { fontWeight: '600', color: '#334155' } },
+            labels: { style: { color: '#64748b' } },
+            gridLineColor: '#e2e8f0',
+            allowDecimals: false
+          },
+          tooltip: {
+            pointFormat: '<b>{point.y:.1f}%</b>',
+            shared: true,
+            backgroundColor: '#f8fafc',
+            borderColor: '#94a3b8',
+            style: { color: '#0f172a' }
+          },
+          plotOptions: {
+            column: {
+              borderRadius: 4,
+              borderWidth: 0,
+              dataLabels: {
+                enabled: true,
+                format: '{point.y:.1f}%'
+              }
+            }
+          },
+          series: [{
+            name: 'Percentage',
+            colorByPoint: true,
+            data: barData,
+            showInLegend: false
+          }],
+          credits: { enabled: false }
+        });
+
+      } catch (error) {
+        resultDiv.innerHTML = "<span class='text-red-500'>Error: Could not analyze the comment.</span>";
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reddit Comment Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+    <header class="bg-white shadow-sm sticky top-0 z-50">
+    <nav class="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
+      <div class="flex items-center space-x-2">
+        <div class="bg-blue-600 rounded-full p-1">
+          <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 7v6c0 6 9 9 9 9s9-3 9-9V7l-9-5z"></path>
+          </svg>
+        </div>
+        <h1 class="font-semibold text-lg select-none">Cyber Suraksha</h1>
+      </div>
+    </nav>
+  </header>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-900">
+  <div class="max-w-5xl mx-auto p-6">
+    <h1 class="text-2xl font-bold mb-4">Reddit Comment Analyzer</h1>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <input type="text" id="redditUrl" placeholder="Enter Reddit post URL..." class="p-3 border border-slate-300 rounded-md" />
+      <input type="number" id="commentLimit" placeholder="No. of comments" min="1" class="p-3 border border-slate-300 rounded-md" />
+      <button onclick="analyzeRedditComments()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">Analyze</button>
+    </div>
+
+    <div id="loader" class="hidden mb-4">
+      <div class="flex items-center space-x-2">
+        <svg class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8z" />
+        </svg>
+        <span class="text-blue-600">Analyzing comments...</span>
+      </div>
+    </div>
+
+    <div id="summary" class="mb-4 text-slate-700"></div>
+    <div id="pie-chart" class="w-full h-[300px] mb-6"></div>
+    <div id="bar-chart" class="w-full h-[300px] mb-6"></div>
+    <div id="flagged-comments" class="space-y-4"></div>
+  </div>
+
+  <script>
+    function extractComments(children, limit) {
+      const result = [];
+      function recurse(comments) {
+        for (const c of comments) {
+          if (result.length >= limit) return;
+          const body = c?.data?.body;
+          if (body) result.push(body);
+          if (c?.data?.replies?.data?.children) {
+            recurse(c.data.replies.data.children);
+          }
+        }
+      }
+      recurse(children);
+      return result;
+    }
+
+    async function analyzeRedditComments() {
+      const url = document.getElementById('redditUrl').value.trim();
+      const limit = parseInt(document.getElementById('commentLimit').value) || 20;
+      const postId = url.split("comments/")[1]?.split("/")[0];
+      if (!postId) return alert("Invalid Reddit URL");
+
+      const summaryDiv = document.getElementById("summary");
+      const flaggedDiv = document.getElementById("flagged-comments");
+      const loader = document.getElementById("loader");
+
+      summaryDiv.innerHTML = "";
+      flaggedDiv.innerHTML = "";
+      loader.classList.remove("hidden");
+
+      try {
+        const res = await fetch(`https://www.reddit.com/comments/${postId}.json?limit=500`);
+        const json = await res.json();
+        const comments = extractComments(json[1].data.children, limit);
+
+        const categoryCount = {};
+        let flaggedHtml = "";
+
+        for (let i = 0; i < comments.length; i++) {
+          const comment = comments[i];
+          const apiRes = await fetch("https://koyu008-toxic-comment-classifier.hf.space/api/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: comment })
+          });
+          const result = await apiRes.json();
+          const preds = result.predictions;
+
+          for (const [label, score] of Object.entries(preds)) {
+            if (score > 0.6) {
+              categoryCount[label] = (categoryCount[label] || 0) + 1;
+              flaggedHtml += `<div class='bg-white border rounded p-3 shadow'><p class='mb-2 text-sm text-slate-600'>${comment}</p><p class='text-xs text-red-600 font-semibold'>Flagged: ${label}</p></div>`;
+              break;
+            }
+          }
+        }
+
+        const total = comments.length;
+        summaryDiv.innerHTML = `<p><strong>Total comments analyzed:</strong> ${total}</p>`;
+        flaggedDiv.innerHTML = flaggedHtml;
+
+        const pieData = Object.entries(categoryCount).map(([label, count]) => ({
+          name: label,
+          y: (count / total) * 100,
+          count: count
+        }));
+
+        const barData = Object.entries(categoryCount).map(([label, count]) => ({
+          y: (count / total) * 100,
+          name: label
+        }));
+
+        Highcharts.chart("pie-chart", {
+          chart: { type: "pie", backgroundColor: "transparent" },
+          title: { text: "Category Distribution" },
+          series: [{
+            name: "Percentage",
+            colorByPoint: true,
+            data: pieData
+          }]
+        });
+
+        Highcharts.chart("bar-chart", {
+          chart: { type: "column", backgroundColor: "transparent" },
+          title: { text: "Category Breakdown" },
+          xAxis: { categories: Object.keys(categoryCount) },
+          yAxis: {
+            min: 0,
+            title: { text: "Percentage (%)" }
+          },
+          series: [{ name: "Toxicity", data: barData }]
+        });
+
+      } catch (err) {
+        summaryDiv.innerHTML = "<span class='text-red-600'>Failed to analyze comments.</span>";
+        console.error(err);
+      } finally {
+        loader.classList.add("hidden");
+      }
+    }
+  </script>
+</body>
+</html>
