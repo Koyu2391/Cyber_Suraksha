@@ -6,7 +6,7 @@
   <title>Reddit Comment Analyzer</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://code.highcharts.com/highcharts.js"></script>
-  <header class="bg-white shadow-sm sticky top-0 z-50">
+    <header class="bg-white shadow-sm sticky top-0 z-50">
     <nav class="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
       <div class="flex items-center space-x-2">
         <div class="bg-blue-600 rounded-full p-1">
@@ -77,25 +77,22 @@
       loader.classList.remove("hidden");
 
       try {
-        const redditRes = await fetch(`https://www.reddit.com/comments/${postId}.json?limit=500`);
-        const redditJson = await redditRes.json();
-        const comments = extractComments(redditJson[1].data.children, limit);
-
-        const apiRes = await fetch("https://koyu008-toxic-comment-classifier.hf.space/api/predict", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts: comments })
-        });
-
-        const result = await apiRes.json();
-        const results = result.results;
+        const res = await fetch(`https://www.reddit.com/comments/${postId}.json?limit=500`);
+        const json = await res.json();
+        const comments = extractComments(json[1].data.children, limit);
 
         const categoryCount = {};
         let flaggedHtml = "";
 
-        for (const item of results) {
-          const preds = item.predictions;
-          const comment = item.text;
+        for (let i = 0; i < comments.length; i++) {
+          const comment = comments[i];
+          const apiRes = await fetch("https://koyu008-toxic-comment-classifier.hf.space/api/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: comment })
+          });
+          const result = await apiRes.json();
+          const preds = result.predictions;
 
           for (const [label, score] of Object.entries(preds)) {
             if (score > 0.6) {
@@ -144,7 +141,7 @@
 
       } catch (err) {
         summaryDiv.innerHTML = "<span class='text-red-600'>Failed to analyze comments.</span>";
-        console.error("Error during analysis:", err);
+        console.error(err);
       } finally {
         loader.classList.add("hidden");
       }
