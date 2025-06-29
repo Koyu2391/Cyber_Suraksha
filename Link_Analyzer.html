@@ -44,108 +44,119 @@
     <div id="bar-chart" class="w-full h-[300px] mb-6"></div>
     <div id="flagged-comments" class="space-y-4"></div>
   </div>
+<script>
+  function extractComments(children, limit) {
+    const result = [];
+    function recurse(comments) {
+      for (const c of comments) {
+        if (result.length >= limit) return;
+        const body = c?.data?.body;
+        if (body) result.push(body);
+        if (c?.data?.replies?.data?.children) {
+          recurse(c.data.replies.data.children);
+        }
+      }
+    }
+    recurse(children);
+    return result;
+  }
 
-  <script>
-    function extractComments(children, limit) {
-      const result = [];
-      function recurse(comments) {
-        for (const c of comments) {
-          if (result.length >= limit) return;
-          const body = c?.data?.body;
-          if (body) result.push(body);
-          if (c?.data?.replies?.data?.children) {
-            recurse(c.data.replies.data.children);
+  async function analyzeRedditComments() {
+    const url = document.getElementById('redditUrl').value.trim();
+    const limit = parseInt(document.getElementById('commentLimit').value) || 20;
+    const postId = url.split("comments/")[1]?.split("/")[0];
+    if (!postId) return alert("Invalid Reddit URL");
+
+    const summaryDiv = document.getElementById("summary");
+    const flaggedDiv = document.getElementById("flagged-comments");
+    const loader = document.getElementById("loader");
+
+    summaryDiv.innerHTML = "";
+    flaggedDiv.innerHTML = "";
+    loader.classList.remove("hidden");
+
+    const categoryColors = {
+      toxic: "#e63946",
+      severe_toxic: "#9d0208",
+      obscene: "#f77f00",
+      threat: "#6a4c93",
+      insult: "#f48c06",
+      identity_hate: "#2a9d8f"
+    };
+
+    try {
+      const res = await fetch(`https://www.reddit.com/comments/${postId}.json?limit=500`);
+      const json = await res.json();
+      const comments = extractComments(json[1].data.children, limit);
+
+      const categoryCount = {};
+      let flaggedHtml = "";
+
+      for (let i = 0; i < comments.length; i++) {
+        const comment = comments[i];
+        const apiRes = await fetch("https://koyu008-toxic-comment-classifier.hf.space/api/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: comment })
+        });
+        const result = await apiRes.json();
+        const preds = result.predictions;
+
+        for (const [label, score] of Object.entries(preds)) {
+          if (score > 0.6) {
+            categoryCount[label] = (categoryCount[label] || 0) + 1;
+            flaggedHtml += `<div class='bg-white border rounded p-3 shadow'><p class='mb-2 text-sm text-slate-600'>${comment}</p><p class='text-xs text-red-600 font-semibold'>Flagged: ${label}</p></div>`;
+            break;
           }
         }
       }
-      recurse(children);
-      return result;
+
+      const total = comments.length;
+      summaryDiv.innerHTML = `<p><strong>Total comments analyzed:</strong> ${total}</p>`;
+      flaggedDiv.innerHTML = flaggedHtml;
+
+      const pieData = Object.entries(categoryCount).map(([label, count]) => ({
+        name: label,
+        y: (count / total) * 100,
+        color: categoryColors[label] || "#ccc"
+      }));
+
+      Highcharts.chart("pie-chart", {
+        chart: { type: "pie", backgroundColor: "transparent" },
+        title: { text: "Category Distribution" },
+        series: [{
+          name: "Percentage",
+          colorByPoint: true,
+          data: pieData
+        }]
+      });
+
+      Highcharts.chart("bar-chart", {
+        chart: { type: "column", backgroundColor: "transparent" },
+        title: { text: "Category Breakdown" },
+        xAxis: { categories: Object.keys(categoryCount) },
+        yAxis: {
+          min: 0,
+          title: { text: "Percentage (%)" }
+        },
+        series: [{
+          name: "Toxicity",
+          data: Object.entries(categoryCount).map(([label, count]) => ({
+            y: (count / total) * 100,
+            name: label,
+            color: categoryColors[label] || "#ccc"
+          }))
+        }]
+      });
+
+    } catch (err) {
+      summaryDiv.innerHTML = "<span class='text-red-600'>Failed to analyze comments.</span>";
+      console.error(err);
+    } finally {
+      loader.classList.add("hidden");
     }
+  }
+</script>
 
-    async function analyzeRedditComments() {
-      const url = document.getElementById('redditUrl').value.trim();
-      const limit = parseInt(document.getElementById('commentLimit').value) || 20;
-      const postId = url.split("comments/")[1]?.split("/")[0];
-      if (!postId) return alert("Invalid Reddit URL");
-
-      const summaryDiv = document.getElementById("summary");
-      const flaggedDiv = document.getElementById("flagged-comments");
-      const loader = document.getElementById("loader");
-
-      summaryDiv.innerHTML = "";
-      flaggedDiv.innerHTML = "";
-      loader.classList.remove("hidden");
-
-      try {
-        const res = await fetch(`https://www.reddit.com/comments/${postId}.json?limit=500`);
-        const json = await res.json();
-        const comments = extractComments(json[1].data.children, limit);
-
-        const categoryCount = {};
-        let flaggedHtml = "";
-
-        for (let i = 0; i < comments.length; i++) {
-          const comment = comments[i];
-          const apiRes = await fetch("https://koyu008-toxic-comment-classifier.hf.space/api/predict", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: comment })
-          });
-          const result = await apiRes.json();
-          const preds = result.predictions;
-
-          for (const [label, score] of Object.entries(preds)) {
-            if (score > 0.6) {
-              categoryCount[label] = (categoryCount[label] || 0) + 1;
-              flaggedHtml += `<div class='bg-white border rounded p-3 shadow'><p class='mb-2 text-sm text-slate-600'>${comment}</p><p class='text-xs text-red-600 font-semibold'>Flagged: ${label}</p></div>`;
-              break;
-            }
-          }
-        }
-
-        const total = comments.length;
-        summaryDiv.innerHTML = `<p><strong>Total comments analyzed:</strong> ${total}</p>`;
-        flaggedDiv.innerHTML = flaggedHtml;
-
-        const pieData = Object.entries(categoryCount).map(([label, count]) => ({
-          name: label,
-          y: (count / total) * 100,
-          count: count
-        }));
-
-        const barData = Object.entries(categoryCount).map(([label, count]) => ({
-          y: (count / total) * 100,
-          name: label
-        }));
-
-        Highcharts.chart("pie-chart", {
-          chart: { type: "pie", backgroundColor: "transparent" },
-          title: { text: "Category Distribution" },
-          series: [{
-            name: "Percentage",
-            colorByPoint: true,
-            data: pieData
-          }]
-        });
-
-        Highcharts.chart("bar-chart", {
-          chart: { type: "column", backgroundColor: "transparent" },
-          title: { text: "Category Breakdown" },
-          xAxis: { categories: Object.keys(categoryCount) },
-          yAxis: {
-            min: 0,
-            title: { text: "Percentage (%)" }
-          },
-          series: [{ name: "Toxicity", data: barData }]
-        });
-
-      } catch (err) {
-        summaryDiv.innerHTML = "<span class='text-red-600'>Failed to analyze comments.</span>";
-        console.error(err);
-      } finally {
-        loader.classList.add("hidden");
-      }
-    }
-  </script>
 </body>
 </html>
