@@ -124,7 +124,9 @@
             <p class='text-xs text-red-600 font-semibold'>Flagged Labels: ${flaggedLabels.join(", ")}</p>
           </div>`;
         } else {
-          categoryCount["not_toxic"] = (categoryCount["not_toxic"] || 0) + 1;
+          const cleanLabel = "not_toxic";
+          categoryCount[cleanLabel] = (categoryCount[cleanLabel] || 0) + 1;
+
           totalFlaggedLabels++; // Count not_toxic as a category too
         }
       }
