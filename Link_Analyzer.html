@@ -44,6 +44,7 @@
     <div id="bar-chart" class="w-full h-[300px] mb-6"></div>
     <div id="flagged-comments" class="space-y-4"></div>
   </div>
+
   <script>
   function extractComments(children, limit) {
     const result = [];
@@ -108,7 +109,8 @@
         let isAnyFlagged = false;
         let flaggedLabels = [];
 
-        for (const [label, score] of Object.entries(preds)) {
+        for (const [labelRaw, score] of Object.entries(preds)) {
+          const label = labelRaw.trim().replace(/\s+/g, "_").toLowerCase(); // Normalize
           if (score > 0.6) {
             categoryCount[label] = (categoryCount[label] || 0) + 1;
             totalFlaggedLabels++;
@@ -124,10 +126,9 @@
             <p class='text-xs text-red-600 font-semibold'>Flagged Labels: ${flaggedLabels.join(", ")}</p>
           </div>`;
         } else {
-          const cleanLabel = "not_toxic";
-          categoryCount[cleanLabel] = (categoryCount[cleanLabel] || 0) + 1;
-
-          totalFlaggedLabels++; // Count not_toxic as a category too
+          const label = "not_toxic";
+          categoryCount[label] = (categoryCount[label] || 0) + 1;
+          totalFlaggedLabels++;
         }
       }
 
@@ -181,6 +182,7 @@
     }
   }
 </script>
+
 
 </body>
 </html>
