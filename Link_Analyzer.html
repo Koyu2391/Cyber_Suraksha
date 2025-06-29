@@ -43,7 +43,8 @@
     <div id="pie-chart" class="w-full h-[300px] mb-6"></div>
     <div id="bar-chart" class="w-full h-[300px] mb-6"></div>
     <div id="flagged-comments" class="space-y-4"></div>
-  </div><script>
+  </div>
+  <script>
   function extractComments(children, limit) {
     const result = [];
     function recurse(comments) {
@@ -80,7 +81,8 @@
       obscene: "#f77f00",
       threat: "#6a4c93",
       insult: "#f48c06",
-      identity_hate: "#2a9d8f"
+      identity_hate: "#2a9d8f",
+      not_toxic: "#2ecc71"
     };
 
     try {
@@ -90,7 +92,8 @@
 
       const categoryCount = {};
       let flaggedHtml = "";
-      let flaggedTotal = 0;
+      let flaggedCommentCount = 0;
+      let totalFlaggedLabels = 0;
 
       for (let i = 0; i < comments.length; i++) {
         const comment = comments[i];
@@ -102,32 +105,47 @@
         const result = await apiRes.json();
         const preds = result.predictions;
 
+        let isAnyFlagged = false;
+        let flaggedLabels = [];
+
         for (const [label, score] of Object.entries(preds)) {
           if (score > 0.6) {
             categoryCount[label] = (categoryCount[label] || 0) + 1;
-            flaggedTotal++;
-            flaggedHtml += `<div class='bg-white border rounded p-3 shadow'><p class='mb-2 text-sm text-slate-600'>${comment}</p><p class='text-xs text-red-600 font-semibold'>Flagged: ${label}</p></div>`;
-            break;
+            totalFlaggedLabels++;
+            isAnyFlagged = true;
+            flaggedLabels.push(label);
           }
+        }
+
+        if (isAnyFlagged) {
+          flaggedCommentCount++;
+          flaggedHtml += `<div class='bg-white border rounded p-3 shadow'>
+            <p class='mb-2 text-sm text-slate-600'>${comment}</p>
+            <p class='text-xs text-red-600 font-semibold'>Flagged Labels: ${flaggedLabels.join(", ")}</p>
+          </div>`;
+        } else {
+          categoryCount["not_toxic"] = (categoryCount["not_toxic"] || 0) + 1;
+          totalFlaggedLabels++; // Count not_toxic as a category too
         }
       }
 
       const total = comments.length;
       summaryDiv.innerHTML = `
         <p><strong>Total comments analyzed:</strong> ${total}</p>
-        <p><strong>Total flagged comments:</strong> ${flaggedTotal}</p>
+        <p><strong>Total flagged comments:</strong> ${flaggedCommentCount}</p>
+        <p><strong>Total label hits:</strong> ${totalFlaggedLabels}</p>
       `;
       flaggedDiv.innerHTML = flaggedHtml;
 
       const pieData = Object.entries(categoryCount).map(([label, count]) => ({
         name: label,
-        y: (count / flaggedTotal) * 100,
+        y: (count / totalFlaggedLabels) * 100,
         color: categoryColors[label] || "#ccc"
       }));
 
       Highcharts.chart("pie-chart", {
         chart: { type: "pie", backgroundColor: "transparent" },
-        title: { text: "Category Distribution (Flagged Only)" },
+        title: { text: "Category Distribution (Label Hits)" },
         series: [{
           name: "Percentage",
           colorByPoint: true,
@@ -137,7 +155,7 @@
 
       Highcharts.chart("bar-chart", {
         chart: { type: "column", backgroundColor: "transparent" },
-        title: { text: "Category Breakdown (Flagged Only)" },
+        title: { text: "Category Breakdown (Label Hits)" },
         xAxis: { categories: Object.keys(categoryCount) },
         yAxis: {
           min: 0,
@@ -146,7 +164,7 @@
         series: [{
           name: "Toxicity",
           data: Object.entries(categoryCount).map(([label, count]) => ({
-            y: (count / flaggedTotal) * 100,
+            y: (count / totalFlaggedLabels) * 100,
             name: label,
             color: categoryColors[label] || "#ccc"
           }))
